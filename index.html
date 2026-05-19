@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RunTrack - Route Finder</title>
+    <!-- Tailwind CSS สำหรับการตกแต่ง -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Leaflet CSS & JS สำหรับแผนที่ -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map { height: 450px; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans">
+
+    <!-- Navigation Bar -->
+    <nav class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+            <div class="bg-orange-500 p-2 rounded-full text-white font-bold text-xl">R</div>
+            <span class="text-2xl font-black tracking-wider text-orange-500">RUNTRACK</span>
+        </div>
+        <div class="flex items-center space-x-4">
+            <span class="text-sm text-gray-400" id="user-status">กำลังเช็คพิกัด...</span>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- แผงควบคุมและรายการเส้นทาง (ซ้าย) -->
+        <div class="lg:col-span-1 flex flex-col space-y-4">
+            <div class="bg-gray-800 p-5 rounded-2xl shadow-lg border border-gray-700">
+                <h2 class="text-xl font-bold mb-2 flex items-center gap-2">
+                    📍 เส้นทางใกล้ตัวคุณ
+                </h2>
+                <p class="text-sm text-gray-400 mb-4">ระบบจะคำนวณหาระยะห่างจากจุดที่คุณอยู่โดยอัตโนมัติ</p>
+                
+                <button onclick="getUserLocation()" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded-xl transition duration-200 flex justify-center items-center gap-2 mb-4">
+                    🔄 อัปเดตตำแหน่ง GPS ปัจจุบัน
+                </button>
+
+                <!-- รายการเส้นทางวิ่ง -->
+                <div id="route-list" class="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                    <!-- ข้อมูลจะถูกใส่ผ่าน JavaScript -->
+                    <p class="text-gray-500 text-center py-4">กำลังโหลดข้อมูลเส้นทาง...</p>
+                </div>
+            </div>
+
+            <!-- กล่องแสดงรายละเอียดเส้นทางที่เลือก -->
+            <div id="detail-panel" class="bg-gray-800 p-5 rounded-2xl shadow-lg border border-gray-700 hidden">
+                <h3 class="text-lg font-bold text-orange-400" id="detail-name">ชื่อเส้นทาง</h3>
+                <div class="grid grid-cols-2 gap-4 my-3 text-center">
+                    <div class="bg-gray-700/50 p-2 rounded-xl">
+                        <span class="block text-xs text-gray-400">ระยะทาง</span>
+                        <span class="text-lg font-bold text-white" id="detail-distance">0 km</span>
+                    </div>
+                    <div class="bg-gray-700/50 p-2 rounded-xl">
+                        <span class="block text-xs text-gray-400">ห่างจากคุณ</span>
+                        <span class="text-lg font-bold text-orange-500" id="detail-away">0 km</span>
+                    </div>
+                </div>
+                <button onclick="startRun()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-xl transition duration-200">
+                    🏃 เริ่มวิ่งตามเส้นทางนี้
+                </button>
+            </div>
+        </div>
+
+        <!-- แผนที่แสดงผล (ขวา) -->
+        <div class="lg:col-span-2">
+            <div class="bg-gray-800 p-2 rounded-2xl shadow-lg border border-gray-700 overflow-hidden">
+                <div id="map" class="rounded-xl"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- JavaScript สำหรับระบบ Logic และ GPS -->
+    <script>
+        // 1. กำหนดข้อมูลเส้นทางจำลอง (Mock Data Routes) ในกรุงเทพฯ
+        // ในระบบจริง ข้อมูลนี้จะดึงมาจาก Database (Backend)
+        const mockRoutes = [
+            {
+                id: 1,
+                name: "สวนลุมพินี รอบใหญ่",
+                distance: "2.5 km",
+                center: [13.7314, 100.5415],
+                path: [
+                    [13.7332, 100.5401], [13.7335, 100.5442], 
+                    [13.7291, 100.5434], [13.7285, 100.5391], [13.7332, 100.5401]
+                ]
+            },
+            {
+                id: 2,
+                name: "อุทยานเบญจกิติ (สระน้ำกลาง)",
+                distance: "1.8 km",
+                center: [13.7265, 100.5592],
+                path: [
+                    [13.7288, 100.5590], [13.7288, 100.5615],
+                    [13.7235, 100.5615], [13.7235, 100.5590], [13.7288, 100.5590]
+                ]
+            },
+            {
+                id: 3,
+                name: "สวนจตุจักร สายสุขภาพ",
+                distance: "3.0 km",
+                center: [13.8049, 100.5542],
+                path: [
+                    [13.8085, 100.5520], [13.8085, 100.5560],
+                    [13.8010, 100.5560], [13.8010, 100.5520], [13.8085, 100.5520]
+                ]
+            }
+        ];
+
+        let map;
+        let userMarker;
+        let currentPolyline = null;
+        let userCoords = [13.7563, 100.5018]; // ค่าเริ่มต้น: กรุงเทพฯ (เผื่อบราวเซอร์บล็อก GPS)
+
+        // 2. ฟังก์ชันคำนวณระยะห่างระหว่างจุด 2 จุด (Haversine Formula)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // รัศมีโลก (km)
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c; // ออกมาเป็นกิโลเมตร
+        }
+
+        // 3. เริ่มต้นสร้างแผนที่
+        function initMap() {
+            map = L.map('map').setView(userCoords, 12);
+            
+            // ใช้แผนที่สไตล์มืด (Dark Mode) เพื่อให้เข้ากับธีมแอป
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap &copy; CARTO'
+            }).addTo(map);
+
+            // สร้างวงกลม/มาร์กเกอร์สีฟ้าแสดงจุดที่ผู้ใช้อยู่
+            userMarker = L.circleMarker(userCoords, {
+                color: '#3498db',
+                fillColor: '#3498db',
+                fillOpacity: 0.8,
+                radius: 10
+            }).addTo(map).bindPopup("คุณอยู่ที่นี่").openPopup();
+
+            getUserLocation();
+        }
+
+        // 4. ดึงพิกัดจริงจาก GPS ของอุปกรณ์
+        function getUserLocation() {
+            if (navigator.geolocation) {
+                document.getElementById('user-status').innerText = "กำลังค้นหาตำแหน่ง GPS...";
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        userCoords = [position.coords.latitude, position.coords.longitude];
+                        userMarker.setLatLng(userCoords);
+                        map.setView(userCoords, 13);
+                        document.getElementById('user-status').innerText = "📍 ระบุพิกัดสำเร็จ";
+                        renderRoutes();
+                    },
+                    (error) => {
+                        document.getElementById('user-status').innerText = "❌ เข้าถึง GPS ไม่ได้ (ใช้พิกัดจำลอง)";
+                        renderRoutes(); // ถ้าผู้ใช้ปฏิเสธ จะคำนวณจากพิกัดจำลองให้แทน
+                    }
+                );
+            } else {
+                document.getElementById('user-status').innerText = "เบราว์เซอร์ไม่รองรับ GPS";
+                renderRoutes();
+            }
+        }
+
+        // 5. คำนวณระยะทาง เรียงลำดับ และแสดงผลเส้นทางที่ใกล้ที่สุด
+        function renderRoutes() {
+            const routeListDiv = document.getElementById('route-list');
+            routeListDiv.innerHTML = "";
+
+            // คำนวณระยะห่างของแต่ละเส้นทางจากจุดที่ผู้ใช้อยู่
+            const routesWithDistance = mockRoutes.map(route => {
+                const distanceAway = calculateDistance(userCoords[0], userCoords[1], route.center[0], route.center[1]);
+                return { ...route, distanceAway };
+            });
+
+            // เรียงลำดับจากใกล้ไปไกล (Ascending Order)
+            routesWithDistance.sort((a, b) => a.distanceAway - b.distanceAway);
+
+            // นำไปแสดงผลบนหน้าเว็บ
+            routesWithDistance.forEach(route => {
+                const card = document.createElement('div');
+                card.className = "bg-gray-700/60 hover:bg-gray-700 p-4 rounded-xl cursor-pointer transition border border-transparent hover:border-orange-500 flex justify-between items-center";
+                card.onclick = () => selectRoute(route);
+
+                card.innerHTML = `
+                    <div>
+                        <h4 class="font-bold text-white">${route.name}</h4>
+                        <p class="text-xs text-gray-400 mt-1">ระยะทางวิ่ง: ${route.distance}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded-full font-semibold">
+                            ห่าง ${route.distanceAway.toFixed(1)} กม.
+                        </span>
+                    </div>
+                `;
+                routeListDiv.appendChild(card);
+            });
+        }
+
+        // 6. ฟังก์ชันเมื่อผู้ใช้กดเลือกเส้นทาง
+        function selectRoute(route) {
+            // ลบเส้นทางเดิมบนแผนที่ออกก่อน (ถ้ามี)
+            if (currentPolyline) {
+                map.removeLayer(currentPolyline);
+            }
+
+            // วาดเส้นทางวิ่งใหม่ลงบนแผนที่ (สีส้ม Strava Style)
+            currentPolyline = L.polyline(route.path, {
+                color: '#ff5722',
+                weight: 5,
+                opacity: 0.9,
